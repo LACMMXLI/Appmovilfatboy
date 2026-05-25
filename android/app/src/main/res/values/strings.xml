@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Fatboy Restaurante</string>
+    <string name="title_activity_main">Fatboy Restaurante</string>
+    <string name="package_name">com.fatboy.vipclub</string>
+    <string name="custom_url_scheme">com.fatboy.vipclub</string>
+</resources>
