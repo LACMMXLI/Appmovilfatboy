@@ -1,0 +1,6 @@
+{
+  "name": "Fatboy Restaurant",
+  "description": "Menú digital interactivo para Fatboy Restaurant, con especialidades de comida rápida, sistema de puntos VIP, reseñas y contacto directo en Lombardo Toledano 1200.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
