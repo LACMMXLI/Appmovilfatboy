@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+@utility pb-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@utility pt-safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
 @theme {
   --animate-spin-slow: spin 10s linear infinite;
   --animate-infinite-loading: infinite-loading 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;

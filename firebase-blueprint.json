@@ -1,0 +1,106 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "A food or beverage item in the restaurant menu",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique product ID" },
+        "name": { "type": "string", "description": "Name of the product" },
+        "description": { "type": "string", "description": "Description of ingredients and size" },
+        "price": { "type": "number", "description": "Unit price in USD" },
+        "image": { "type": "string", "description": "Unsplash or asset URL for the product image" },
+        "categoryId": { "type": "string", "description": "ID of the category it belongs to" },
+        "rating": { "type": "number", "description": "Average user rating" },
+        "prepTime": { "type": "string", "description": "Estimated preparation time" },
+        "isPromo": { "type": "boolean", "description": "Whether the product is on special promotion" },
+        "discountPrice": { "type": "number", "description": "Promotional discount price if applicable" },
+        "tags": { "type": "array", "description": "Special badges like La Casa or Más Vendida" }
+      },
+      "required": ["id", "name", "description", "price", "image", "categoryId", "rating", "prepTime"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "A menu section (e.g. burgers, drinks)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique category ID" },
+        "name": { "type": "string", "description": "Display name" },
+        "icon": { "type": "string", "description": "Lucide icon name identifier" }
+      },
+      "required": ["id", "name", "icon"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "A customer review and rating for the service/food",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique review ID" },
+        "author": { "type": "string", "description": "Name of the reviewer" },
+        "avatar": { "type": "string", "description": "Photo URL" },
+        "rating": { "type": "number", "description": "1 to 5 stars" },
+        "comment": { "type": "string", "description": "Review details" },
+        "date": { "type": "string", "description": "Time elapsed description" },
+        "reply": { "type": "string", "description": "Official admin response from Fatboy" },
+        "channel": { "type": "string", "enum": ["google", "app"], "description": "Source of review submission" }
+      },
+      "required": ["id", "author", "rating", "comment", "date", "channel"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Registered customer profile for the VIP Club",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "description": "Google/Facebook verified email address" },
+        "name": { "type": "string", "description": "Full display name" },
+        "role": { "type": "string", "enum": ["customer"], "description": "User authorization role" },
+        "points": { "type": "number", "description": "Accumulated continuous fidelity points" },
+        "avatarUrl": { "type": "string", "description": "Verified Google/Facebook profile photo" },
+        "phone": { "type": "string", "description": "Secondary required WhatsApp contact number" },
+        "whatsappVerified": { "type": "boolean", "description": "True if phone number validated via 2-step code" },
+        "tier": { "type": "string", "enum": ["Bronce", "Plata", "Oro"], "description": "Points-based loyalty tire level" },
+        "vipCode": { "type": "string", "description": "Unique assigned scan-ready loyalty identifier" },
+        "termsAccepted": { "type": "boolean", "description": "Whether user accepted the Information Responsibility and Privacy Policy terms" },
+        "termsAcceptedAt": { "type": "string", "description": "Timestamp of accepting information responsibility terms" }
+      },
+      "required": ["uid", "email", "name", "role", "points", "phone", "whatsappVerified", "tier", "vipCode", "termsAccepted"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "App notification or promo message",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "type": { "type": "string", "enum": ["promo", "loyalty", "system"] }
+      },
+      "required": ["id", "title", "body", "timestamp", "isRead", "type"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Interactive digital food cards"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Digital food classifications and icons"
+    },
+    "/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Public social validation wall of customer feedback"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "VIP profiles with points records and WhatsApp state"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Personalized history of exclusive promotional pushes"
+    }
+  }
+}

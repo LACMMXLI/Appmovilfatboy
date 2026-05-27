@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Flame, Award, ShieldAlert, Sparkles, X } from 'lucide-react';
+import { Bell, Flame, Award, ShieldAlert, Sparkles, X, ShieldCheck, Smartphone, Check, Lock, ArrowRight, Eye, Facebook } from 'lucide-react';
 import { Product, Category, Review, User, Notification, TabType } from './types';
 import { INITIAL_CATEGORIES, INITIAL_PRODUCTS, INITIAL_REVIEWS, INITIAL_NOTIFICATIONS } from './data';
 
@@ -9,6 +9,25 @@ import MenuTab from './components/MenuTab';
 import PromosTab from './components/PromosTab';
 import ReviewsTab from './components/ReviewsTab';
 import ProfileTab from './components/ProfileTab';
+
+// Live Firebase integration elements
+import { 
+  auth, 
+  googleProvider, 
+  facebookProvider, 
+  testConnection, 
+  seedDatabaseIfEmpty, 
+  fetchProducts, 
+  fetchCategories, 
+  fetchReviews, 
+  submitReview, 
+  fetchUserById, 
+  saveUserToFirestore, 
+  updateUserPoints, 
+  updateUserWhatsApp,
+  addNotification as addNotifToDb
+} from './firebase';
+import { onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from 'firebase/auth';
 
 export default function App() {
   // Navigation State
@@ -38,56 +57,140 @@ export default function App() {
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [toast, setToast] = useState<{ title: string; body: string } | null>(null);
 
-  // Initialize data from localStorage or seed file
+  // Specialized firebase auth registration states & steps
+  const [pendingRegUser, setPendingRegUser] = useState<{
+    uid: string;
+    email: string;
+    name: string;
+    avatarUrl?: string;
+  } | null>(null);
+
+  const [whatsappPhone, setWhatsappPhone] = useState<string>('');
+  const [whatsappStep, setWhatsappStep] = useState<'terms' | 'phone' | 'code' | 'verified'>('terms');
+  const [verificationCode, setVerificationCode] = useState<string>('');
+  const [sentCode, setSentCode] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [dbLoading, setDbLoading] = useState<boolean>(true);
+
+  // Initialize general connections, seeding & auth changes on mount in background
   useEffect(() => {
-    const localProds = localStorage.getItem('fb_products');
-    const localCats = localStorage.getItem('fb_categories');
-    const localRevs = localStorage.getItem('fb_reviews');
+    const initFirebaseConnection = async () => {
+      try {
+        await testConnection();
+        await seedDatabaseIfEmpty();
+      } catch (err) {
+        console.warn("Seeding or initial connection issue in background", err);
+      }
+    };
+    initFirebaseConnection();
+
+    // Setup Auth Listener
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          // Check if profile exists in Firestore
+          const profile = await fetchUserById(firebaseUser.uid);
+          if (profile) {
+            setCurrentUser(profile);
+            localStorage.setItem('fb_current_user', JSON.stringify(profile));
+            setPendingRegUser(null);
+          } else {
+            // Initiate multi-step registration (terms and WhatsApp verification)
+            setPendingRegUser({
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              name: firebaseUser.displayName || 'Cliente Fatboy',
+              avatarUrl: firebaseUser.photoURL || '',
+            });
+            setWhatsappStep('terms');
+            setErrorMessage('');
+            setShowAuthModal(true);
+          }
+        } catch (error) {
+          console.error("Error looking up profile in Firestore:", error);
+          setPendingRegUser({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            name: firebaseUser.displayName || 'Cliente Fatboy',
+            avatarUrl: firebaseUser.photoURL || '',
+          });
+        }
+      } else {
+        const localUser = localStorage.getItem('fb_current_user');
+        if (localUser && JSON.parse(localUser).uid === 'user_default') {
+          setCurrentUser(JSON.parse(localUser));
+        } else {
+          setCurrentUser(null);
+          localStorage.removeItem('fb_current_user');
+        }
+      }
+    });
+
+    // Notifications fallback
     const localNotifs = localStorage.getItem('fb_notifications');
-    const localUser = localStorage.getItem('fb_current_user');
-
-    if (localProds) setProducts(JSON.parse(localProds));
-    else {
-      setProducts(INITIAL_PRODUCTS);
-      localStorage.setItem('fb_products', JSON.stringify(INITIAL_PRODUCTS));
-    }
-
-    if (localCats) setCategories(JSON.parse(localCats));
-    else {
-      setCategories(INITIAL_CATEGORIES);
-      localStorage.setItem('fb_categories', JSON.stringify(INITIAL_CATEGORIES));
-    }
-
-    if (localRevs) setReviews(JSON.parse(localRevs));
-    else {
-      setReviews(INITIAL_REVIEWS);
-      localStorage.setItem('fb_reviews', JSON.stringify(INITIAL_REVIEWS));
-    }
-
-    if (localNotifs) setNotifications(JSON.parse(localNotifs));
-    else {
+    if (localNotifs) {
+      setNotifications(JSON.parse(localNotifs));
+    } else {
       setNotifications(INITIAL_NOTIFICATIONS);
       localStorage.setItem('fb_notifications', JSON.stringify(INITIAL_NOTIFICATIONS));
     }
 
-    if (localUser) {
-      setCurrentUser(JSON.parse(localUser));
-    } else {
-      // Default demo logged-in user so the experience starts beautifully with unique VIP code!
-      const defaultUser: User = {
-        uid: 'user_default',
-        email: 'alonzocardona123@gmail.com',
-        name: 'Alonzo Cardona',
-        role: 'customer',
-        points: 120,
-        phone: '686 110 51 91',
-        tier: 'Plata',
-        vipCode: 'VIP-148930'
-      };
-      setCurrentUser(defaultUser);
-      localStorage.setItem('fb_current_user', JSON.stringify(defaultUser));
-    }
+    return () => unsubscribe();
   }, []);
+
+  // DEFERRED / LAZY LOADING STRATEGY: Fetch products, categories and reviews ONLY after splash screen is dismissed
+  useEffect(() => {
+    if (isSplashing) {
+      setDbLoading(true);
+      return;
+    }
+
+    const loadDataPostSplash = async () => {
+      setDbLoading(true);
+      const startTime = Date.now();
+      try {
+        // Fetch products, categories and reviews from Firebase
+        const [dbProds, dbCats, dbRevs] = await Promise.all([
+          fetchProducts(),
+          fetchCategories(),
+          fetchReviews()
+        ]);
+
+        if (dbProds && dbProds.length > 0) {
+          setProducts(dbProds);
+        } else {
+          setProducts(INITIAL_PRODUCTS);
+        }
+
+        if (dbCats && dbCats.length > 0) {
+          setCategories(dbCats);
+        } else {
+          setCategories(INITIAL_CATEGORIES);
+        }
+
+        if (dbRevs && dbRevs.length > 0) {
+          setReviews(dbRevs);
+        } else {
+          setReviews(INITIAL_REVIEWS);
+        }
+      } catch (err) {
+        console.error("Failed to load live Firebase data, using offline fallback:", err);
+        setProducts(INITIAL_PRODUCTS);
+        setCategories(INITIAL_CATEGORIES);
+        setReviews(INITIAL_REVIEWS);
+      } finally {
+        // Enforce a premium minimum display delay of 1200ms to allow smooth skeleton pulse visuals
+        const elapsed = Date.now() - startTime;
+        const minDelay = 1200;
+        if (elapsed < minDelay) {
+          await new Promise(resolve => setTimeout(resolve, minDelay - elapsed));
+        }
+        setDbLoading(false);
+      }
+    };
+
+    loadDataPostSplash();
+  }, [isSplashing]);
 
   const saveReviews = (updatedRevs: Review[]) => {
     setReviews(updatedRevs);
@@ -104,6 +207,7 @@ export default function App() {
     if (updatedUser) {
       localStorage.setItem('fb_current_user', JSON.stringify(updatedUser));
     } else {
+      // If we logout of firebase we reset to default demo user or null
       localStorage.removeItem('fb_current_user');
     }
   };
@@ -116,7 +220,7 @@ export default function App() {
   };
 
   // Trigger Notification helper + push to state
-  const handleAddNewNotification = (title: string, body: string, type: Notification['type']) => {
+  const handleAddNewNotification = async (title: string, body: string, type: Notification['type']) => {
     const newNotif: Notification = {
       id: `n_${Date.now()}`,
       title,
@@ -128,6 +232,65 @@ export default function App() {
     const updated = [newNotif, ...notifications];
     saveNotifications(updated);
     triggerToast(title, body);
+
+    // Sync to Firestore notifications if signed in
+    if (currentUser && currentUser.uid !== 'user_default') {
+      try {
+        await addNotifToDb(newNotif);
+      } catch (err) {
+        console.error("Failed to sync notification to Firestore:", err);
+      }
+    }
+  };
+
+  const handleSignInWithGoogle = async () => {
+    try {
+      setErrorMessage('');
+      await signInWithPopup(auth, googleProvider);
+    } catch (err: any) {
+      console.warn("Popup block or OAuth error: activating sandboxed simulator:", err);
+      setErrorMessage("No se pudo iniciar con Google (Popup bloqueado). Activando simulador...");
+      setTimeout(() => {
+        handleFakeGoogleLogin();
+      }, 1500);
+    }
+  };
+
+  const handleSignInWithFacebook = async () => {
+    try {
+      setErrorMessage('');
+      await signInWithPopup(auth, facebookProvider);
+    } catch (err: any) {
+      console.warn("Popup block or FB OAuth error: activating sandboxed simulator:", err);
+      setErrorMessage("No se pudo iniciar con Facebook (Popup bloqueado). Activando simulador...");
+      setTimeout(() => {
+        handleFakeFacebookLogin();
+      }, 1500);
+    }
+  };
+
+  const handleFakeGoogleLogin = () => {
+    setErrorMessage('');
+    const demoUid = `gp_${Date.now()}`;
+    setPendingRegUser({
+      uid: demoUid,
+      email: 'alonzocardona123@gmail.com',
+      name: 'Alonzo Cardona',
+      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+    });
+    setWhatsappStep('terms');
+  };
+
+  const handleFakeFacebookLogin = () => {
+    setErrorMessage('');
+    const demoUid = `fb_${Date.now()}`;
+    setPendingRegUser({
+      uid: demoUid,
+      email: 'facebook_user@gmail.com',
+      name: 'Juan Pérez',
+      avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
+    });
+    setWhatsappStep('terms');
   };
 
   // User auth actions
@@ -140,7 +303,9 @@ export default function App() {
       role: 'customer',
       points: 120, // default starter points
       tier: 'Plata',
-      vipCode: `VIP-${randomVipNum}`
+      vipCode: `VIP-${randomVipNum}`,
+      whatsappVerified: true,
+      termsAccepted: true
     };
     saveUser(loggedIn);
     handleAddNewNotification(
@@ -151,37 +316,91 @@ export default function App() {
     setShowAuthModal(false);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     const oldName = currentUser?.name || 'Cliente';
-    saveUser(null);
+    
+    // Explicitly sign out of Firebase Auth if active
+    try {
+      if (auth.currentUser) {
+        await fbSignOut(auth);
+      }
+    } catch (err) {
+      console.error("Sign out error", err);
+    }
+
+    // Set fallback default user
+    const defaultUser: User = {
+      uid: 'user_default',
+      email: 'alonzocardona123@gmail.com',
+      name: 'Alonzo Cardona',
+      role: 'customer',
+      points: 120,
+      phone: '686 110 51 91',
+      tier: 'Plata',
+      vipCode: 'VIP-148930',
+      whatsappVerified: true,
+      termsAccepted: true
+    };
+    setCurrentUser(defaultUser);
+    localStorage.setItem('fb_current_user', JSON.stringify(defaultUser));
+
+    setPendingRegUser(null);
+    setWhatsappStep('terms');
+
     handleAddNewNotification(
       '🚪 Sesión Finalizada',
-      `Hasta luego ${oldName}. ¡Vuelve pronto a Fatboy Restaurant!`,
+      `Hasta luego ${oldName}. Se restableció la cuenta demo. ¡Vuelve pronto!`,
       'system'
     );
     setActiveTab('home');
   };
 
   // Points modification
-  const handleAddPoints = (ptsAmt: number) => {
+  const handleAddPoints = async (ptsAmt: number) => {
     if (!currentUser) return;
-    const updated = { ...currentUser, points: currentUser.points + ptsAmt };
+    const nextPoints = currentUser.points + ptsAmt;
+    let nextTier: 'Bronce' | 'Plata' | 'Oro' = 'Bronce';
+    if (nextPoints >= 400) nextTier = 'Oro';
+    else if (nextPoints >= 100) nextTier = 'Plata';
+
+    const updated = { ...currentUser, points: nextPoints, tier: nextTier };
     saveUser(updated);
+
+    if (currentUser.uid !== 'user_default') {
+      try {
+        await updateUserPoints(currentUser.uid, nextPoints, nextTier);
+      } catch (err) {
+        console.error("Error updating user points in database:", err);
+      }
+    }
   };
 
-  const handleUpdatePoints = (newPointsOffset: number) => {
+  const handleUpdatePoints = async (newPointsOffset: number) => {
     if (!currentUser) return;
-    const updated = { ...currentUser, points: currentUser.points + newPointsOffset };
+    const nextPoints = currentUser.points + newPointsOffset;
+    let nextTier: 'Bronce' | 'Plata' | 'Oro' = 'Bronce';
+    if (nextPoints >= 400) nextTier = 'Oro';
+    else if (nextPoints >= 100) nextTier = 'Plata';
+
+    const updated = { ...currentUser, points: nextPoints, tier: nextTier };
     saveUser(updated);
     handleAddNewNotification(
       '🌟 Puntos VIP Actualizados',
-      `Se te añadieron ${newPointsOffset} puntos de simulación al Club VIP de Fatboy.`,
+      `Se te añadieron ${newPointsOffset} puntos de fidelidad al Club VIP de Fatboy.`,
       'loyalty'
     );
+
+    if (currentUser.uid !== 'user_default') {
+      try {
+        await updateUserPoints(currentUser.uid, nextPoints, nextTier);
+      } catch (err) {
+        console.error("Error updating user points in database:", err);
+      }
+    }
   };
 
   // Client add review action
-  const handleAddReview = (newRevData: Omit<Review, 'id' | 'date'>) => {
+  const handleAddReview = async (newRevData: Omit<Review, 'id' | 'date'>) => {
     const item: Review = {
       ...newRevData,
       id: `r_${Date.now()}`,
@@ -189,6 +408,13 @@ export default function App() {
     };
     const updated = [item, ...reviews];
     saveReviews(updated);
+
+    // Save review to Firestore!
+    try {
+      await submitReview(item);
+    } catch (err) {
+      console.error("Could not write review to Firebase:", err);
+    }
     
     // Automatically reward review submission with 15 loyalty points!
     if (currentUser) {
@@ -296,7 +522,7 @@ export default function App() {
         )}
 
         {/* PRIMARY APP HEADER */}
-        <header className="flex items-center justify-between px-5 py-4 border-b border-zinc-900 bg-zinc-900/40 backdrop-blur-md sticky top-0 z-40">
+        <header className="pt-safe-top flex items-center justify-between px-5 pb-4 border-b border-zinc-900 bg-zinc-900/40 backdrop-blur-md sticky top-0 z-40">
           
           {/* Brand Title */}
           <div className="flex items-center gap-2">
@@ -340,6 +566,7 @@ export default function App() {
               onAddPoints={handleAddPoints}
               onTriggerNotification={handleAddNewNotification}
               openAuthModal={() => setShowAuthModal(true)}
+              isLoading={dbLoading}
             />
           )}
 
@@ -366,6 +593,7 @@ export default function App() {
               onLogin={handleLogin}
               onLogout={handleLogout}
               onUpdatePoints={handleUpdatePoints}
+              openAuthModal={() => setShowAuthModal(true)}
             />
           )}
 
@@ -406,35 +634,304 @@ export default function App() {
 
         {/* REQUIRES AUTHENTICATION BACKDROP FORCE MODAL */}
         {showAuthModal && (
-          <div className="absolute inset-0 z-50 bg-black/85 backdrop-blur-md p-5 flex items-center justify-center">
-            <div className="w-full bg-zinc-900 border border-zinc-800 rounded-3xl p-5 relative">
-              <button
-                onClick={() => setShowAuthModal(false)}
-                className="absolute top-4.5 right-4.5 p-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
+          <div className="absolute inset-0 z-50 bg-black/90 backdrop-blur-md p-5 flex items-center justify-center animate-fade-in">
+            <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800/80 rounded-3xl p-5 relative shadow-[0_30px_70px_rgba(0,0,0,0.8)]">
+              
+              {/* Close Button unless we are in the middle of completing profile registration */}
+              {!pendingRegUser && (
+                <button
+                  onClick={() => {
+                    setShowAuthModal(false);
+                    setErrorMessage('');
+                  }}
+                  className="absolute top-4.5 right-4.5 p-1 rounded-lg bg-zinc-800/60 hover:bg-zinc-700 text-zinc-400 hover:text-white transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
 
-              <div className="text-center mb-5 mt-2">
-                <div className="w-11 h-11 bg-amber-500/10 rounded-full flex items-center justify-center mx-auto mb-2 text-amber-500">
-                  <Award className="w-5 h-5 animate-pulse" />
+              {/* VIEW 1: SOCIAL LOGIN SELECTION */}
+              {!pendingRegUser ? (
+                <>
+                  <div className="text-center mb-5 mt-2">
+                    <div className="w-11 h-11 bg-amber-500/10 rounded-full flex items-center justify-center mx-auto mb-2 text-amber-500">
+                      <Award className="w-5 h-5 animate-pulse" />
+                    </div>
+                    <h3 className="text-sm font-extrabold text-zinc-100 uppercase tracking-tight">Únete al Club VIP</h3>
+                    <p className="text-[11px] text-zinc-400 mt-1 max-w-[240px] mx-auto leading-normal font-semibold">
+                      Inicia sesión con tu red social favorita para registrar tus visitas, acumular puntos y reclamar hamburguesas gratis.
+                    </p>
+                  </div>
+
+                  {errorMessage && (
+                    <div className="p-2.5 mb-4 bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold rounded-xl text-center">
+                      ⚠️ {errorMessage}
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {/* Google Login */}
+                    <button
+                      onClick={handleSignInWithGoogle}
+                      className="w-full py-3 px-4 bg-zinc-100 hover:bg-white text-zinc-950 font-black text-xs uppercase tracking-wider rounded-xl duration-200 cursor-pointer shadow flex items-center justify-center gap-2 active:scale-[0.98]"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24">
+                        <path fill="#EA4335" d="M12.24 10.285V14.4h6.887c-.275 1.565-1.88 4.604-6.887 4.604-4.33 0-7.859-3.578-7.859-8s3.53-8 7.859-8c2.46 0 4.105 1.025 5.047 1.926l3.227-3.104C18.251 1.02 15.524 0 12.24 0 5.58 0 0 5.37 0 12s5.58 12 12.24 12c6.96 0 11.57-4.814 11.57-11.79 0-.794-.085-1.4-.188-1.925H12.24z"/>
+                      </svg>
+                      Google Directo
+                    </button>
+
+                    {/* Facebook Login */}
+                    <button
+                      onClick={handleSignInWithFacebook}
+                      className="w-full py-3 px-4 bg-[#1877F2]/10 hover:bg-[#1877F2]/20 border border-[#1877F2]/30 text-white font-black text-xs uppercase tracking-wider rounded-xl duration-200 cursor-pointer flex items-center justify-center gap-2 active:scale-[0.98]"
+                    >
+                      <Facebook className="w-4 h-4 text-[#1877F2]" fill="#1877F2" />
+                      Facebook
+                    </button>
+
+                    {/* Quick Simulation Fallback */}
+                    <div className="relative flex py-2 items-center">
+                      <div className="flex-grow border-t border-zinc-800"></div>
+                      <span className="flex-shrink mx-3 text-[9px] text-zinc-600 font-extrabold uppercase tracking-widest">O SIMULADORES</span>
+                      <div className="flex-grow border-t border-zinc-800"></div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={handleFakeGoogleLogin}
+                        className="py-2.5 px-2 bg-zinc-800/40 hover:bg-zinc-800 text-zinc-300 font-bold text-[10px] uppercase rounded-lg border border-zinc-700/50 cursor-pointer transition text-center"
+                      >
+                        ⚡ Google Demo
+                      </button>
+                      <button
+                        onClick={handleFakeFacebookLogin}
+                        className="py-2.5 px-2 bg-zinc-800/40 hover:bg-zinc-800 text-zinc-300 font-bold text-[10px] uppercase rounded-lg border border-zinc-700/50 cursor-pointer transition text-center"
+                      >
+                        ⚡ FB Demo
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* VIEW 2: PROFILE PROFILE REGISTRATION AND VALIDATIONS */
+                <div className="space-y-4">
+                  {/* Stepper Header icons */}
+                  <div className="flex items-center justify-center gap-1.5 pt-2">
+                    <span className={`w-2.5 h-2.5 rounded-full ${whatsappStep === 'terms' ? 'bg-amber-500 animate-pulse' : 'bg-green-600'}`}></span>
+                    <span className="w-6 h-[1.5px] bg-zinc-800"></span>
+                    <span className={`w-2.5 h-2.5 rounded-full ${whatsappStep === 'phone' ? 'bg-amber-500 animate-pulse' : whatsappStep === 'terms' ? 'bg-zinc-800' : 'bg-green-600'}`}></span>
+                    <span className="w-6 h-[1.5px] bg-zinc-800"></span>
+                    <span className={`w-2.5 h-2.5 rounded-full ${whatsappStep === 'code' ? 'bg-amber-500 animate-pulse' : whatsappStep === 'verified' ? 'bg-green-600' : 'bg-zinc-800'}`}></span>
+                  </div>
+
+                  {errorMessage && (
+                    <div className="p-2 bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-semibold rounded-lg text-center animate-shake">
+                      ⚠️ {errorMessage}
+                    </div>
+                  )}
+
+                  {/* STEP 1: TERMS AND CONDITIONS */}
+                  {whatsappStep === 'terms' && (
+                    <div className="space-y-4">
+                      <div className="text-center">
+                        <div className="w-10 h-10 bg-blue-500/10 rounded-xl flex items-center justify-center mx-auto mb-1.5 text-blue-400">
+                          <Eye className="w-5 h-5" />
+                        </div>
+                        <h4 className="text-xs font-black uppercase tracking-wider text-zinc-100">1. Responsabilidad de la Información</h4>
+                        <p className="text-[10px] text-zinc-400 mt-1 leading-normal font-medium">
+                          Por favor lee y acepta la política de tratamiento de datos personales de Fatboy Restaurant.
+                        </p>
+                      </div>
+
+                      {/* Policy Document view box */}
+                      <div className="h-28 overflow-y-auto p-3 bg-zinc-950 border border-zinc-800 rounded-xl text-[9px] text-zinc-500 font-semibold space-y-2 leading-relaxed scrollbar-thin">
+                        <p className="font-bold text-zinc-400 text-center text-[10px]">TÉRMINOS DE CONFIDENCIALIDAD</p>
+                        <p>En cumplimiento de las leyes de privacidad, Fatboy Restaurant Club VIP informa:</p>
+                        <p>1. **Propósito**: Sus datos de contacto (nombre, email y número de WhatsApp) se utilizarán exclusivamente para validar su membresía VIP en 2 fases, evitar fraudes de duplicación de puntos, notificar sobre sus recompensas conseguidas y procesar de manera directa pedidos al negocio.</p>
+                        <p>2. **Seguridad Absoluta**: Sus datos se encriptan bajo estricto certificado SSL y se almacenan de forma permanente e intransferible en Firestore de Google Base de Datos.</p>
+                        <p>3. **No SPAM**: Fatboy jamás divulgará, venderá o alquilará su número de contacto con anunciantes de ningún tipo.</p>
+                        <p>Usted puede retirar sus datos escribiendo a baja@fatboyrest.com.</p>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setWhatsappStep('phone');
+                          setErrorMessage('');
+                        }}
+                        className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs uppercase tracking-wider rounded-xl cursor-pointer duration-200 transition-all flex items-center justify-center gap-1.5"
+                      >
+                        Aceptar y Continuar <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        onClick={async () => {
+                          await fbSignOut(auth);
+                          setPendingRegUser(null);
+                        }}
+                        className="w-full text-center text-[10px] text-zinc-500 hover:text-zinc-400 font-bold transition-colors cursor-pointer"
+                      >
+                        Cancelar Registro
+                      </button>
+                    </div>
+                  )}
+
+                  {/* STEP 2: WHATSAPP INPUT */}
+                  {whatsappStep === 'phone' && (
+                    <div className="space-y-4">
+                      <div className="text-center">
+                        <div className="w-10 h-10 bg-green-500/10 rounded-xl flex items-center justify-center mx-auto mb-1.5 text-green-400 animate-pulse">
+                          <Smartphone className="w-5 h-5" />
+                        </div>
+                        <h4 className="text-xs font-black uppercase tracking-wider text-zinc-100">2. Registro de WhatsApp Activo</h4>
+                        <p className="text-[10px] text-zinc-400 mt-1 leading-normal font-medium">
+                          Indispensable para enlazar su cuenta del Club VIP y validar transacciones de canje de comida gratis.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest block pl-1">Número de WhatsApp (10 Dígitos)</label>
+                        <div className="relative">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-500 font-mono">+52</span>
+                          <input
+                            type="tel"
+                            maxLength={10}
+                            placeholder="6861105191"
+                            value={whatsappPhone}
+                            onChange={(e) => setWhatsappPhone(e.target.value.replace(/\D/g, ''))}
+                            className="w-full pl-11 pr-4 py-2.5 text-xs bg-zinc-950 border border-zinc-800 rounded-xl text-zinc-100 font-mono focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          if (whatsappPhone.length < 10) {
+                            setErrorMessage('Ingresa un número válido de 10 dígitos.');
+                            return;
+                          }
+                          // Generate random code for simulated verification
+                          const code = Math.floor(100000 + Math.random() * 900000).toString();
+                          setSentCode(code);
+                          setWhatsappStep('code');
+                          setErrorMessage('');
+                          
+                          // Feed simulated SMS notification
+                          handleAddNewNotification(
+                            '💬 Código de Validación VIP',
+                            `[WhatsApp SMS] Tu código de seguridad es: ${code}. Ingrésalo en la aplicación para activar tus 120 pts.`,
+                            'system'
+                          );
+                        }}
+                        className="w-full py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-black font-black text-xs uppercase tracking-wider rounded-xl cursor-pointer duration-200 transition-all flex items-center justify-center gap-1.5"
+                      >
+                        Enviar Código de Validación <Check className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => setWhatsappStep('terms')}
+                        className="w-full text-center text-[10px] text-zinc-500 hover:text-zinc-400 font-bold transition-colors cursor-pointer"
+                      >
+                        Atrás
+                      </button>
+                    </div>
+                  )}
+
+                  {/* STEP 3: OTP CODE INPUT */}
+                  {whatsappStep === 'code' && (
+                    <div className="space-y-4">
+                      <div className="text-center">
+                        <div className="w-10 h-10 bg-amber-500/10 rounded-xl flex items-center justify-center mx-auto mb-1.5 text-amber-500">
+                          <Lock className="w-5 h-5 animate-bounce" />
+                        </div>
+                        <h4 className="text-xs font-black uppercase tracking-wider text-zinc-100">3. Control de Canje Seguro</h4>
+                        <p className="text-[10px] text-zinc-400 mt-1 leading-normal font-medium">
+                          Ingresa el código temporal de 6 dígitos que fue enviado de forma automática a tu WhatsApp.
+                        </p>
+                      </div>
+
+                      {/* Simulation Hint Helper adhering to "un-obstructive visual sandbox guides" */}
+                      <div className="p-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-center">
+                        <span className="text-[9px] text-zinc-500 font-bold uppercase block">Código Simulado Recibido</span>
+                        <span className="text-sm font-black text-amber-500 font-mono tracking-widest">{sentCode}</span>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest block text-center">Código de Seguridad de 6 dígitos</label>
+                        <input
+                          type="text"
+                          maxLength={6}
+                          placeholder="000000"
+                          value={verificationCode}
+                          onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                          className="w-full py-2.5 text-center text-sm font-black bg-zinc-950 border border-zinc-800 rounded-xl text-zinc-100 font-mono focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none tracking-widest"
+                        />
+                      </div>
+
+                      <button
+                        onClick={async () => {
+                          if (verificationCode !== sentCode) {
+                            setErrorMessage('Código incorrecto. Revisa el código indicado arriba.');
+                            return;
+                          }
+                          setErrorMessage('');
+                          
+                          // Complete user profile creation in Firestore
+                          const randomVipNum = Math.floor(100000 + Math.random() * 900000);
+                          const newUser: User = {
+                            uid: pendingRegUser.uid,
+                            email: pendingRegUser.email,
+                            name: pendingRegUser.name,
+                            role: 'customer',
+                            points: 120, // 120 starter points seeded directly
+                            phone: `+52 ${whatsappPhone}`,
+                            tier: 'Plata',
+                            vipCode: `VIP-${randomVipNum}`,
+                            whatsappVerified: true,
+                            termsAccepted: true
+                          };
+
+                          try {
+                            // Persistence trigger
+                            await saveUserToFirestore(newUser);
+                            saveUser(newUser);
+
+                            handleAddNewNotification(
+                              `👑 ¡Bienvenido al Club, ${pendingRegUser.name}!`,
+                              `Su número fue validado. Cuenta con +120 puntos de regalo VIP para canjear atractores menús.`,
+                              'loyalty'
+                            );
+                            
+                            // Success Reset
+                            setPendingRegUser(null);
+                            setWhatsappStep('terms');
+                            setWhatsappPhone('');
+                            setVerificationCode('');
+                            setShowAuthModal(false);
+                          } catch (err) {
+                            console.error("Critical Profile Storage Error:", err);
+                            setErrorMessage("Fallo de guardado en el servidor Firebase Firestore. Por favor intenta de nuevo.");
+                          }
+                        }}
+                        className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs uppercase tracking-wider rounded-xl cursor-pointer duration-200 transition-all flex items-center justify-center gap-1.5"
+                      >
+                        Verificar & Activar Miembros <ShieldCheck className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setVerificationCode('');
+                          setWhatsappStep('phone');
+                        }}
+                        className="w-full text-center text-[10px] text-zinc-500 hover:text-zinc-400 font-bold transition-colors cursor-pointer"
+                      >
+                        Atrás (Cambiar número)
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <h3 className="text-sm font-extrabold text-zinc-100 uppercase tracking-tight">Regístrate para continuar</h3>
-                <p className="text-[11px] text-zinc-400 mt-1 max-w-[240px] mx-auto leading-normal font-semibold">
-                  Únete al Fatboy Restaurant Club VIP para canjear atractivos cupones calientes y ganar puntos en tus pedidos.
-                </p>
-              </div>
+              )}
 
-              {/* Nested form to log in or switch path directly */}
-              <button
-                onClick={() => {
-                  handleLogin('alonzocardona123@gmail.com', 'Alonzo Cardona');
-                  setShowAuthModal(false);
-                }}
-                className="w-full py-3 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-black font-black text-xs uppercase tracking-wider rounded-xl shadow cursor-pointer transition-all active:scale-95 text-center flex items-center justify-center"
-              >
-                Iniciar Sesión Rápida Demo ⚡
-              </button>
             </div>
           </div>
         )}

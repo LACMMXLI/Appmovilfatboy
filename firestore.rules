@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Dynamic schema validation functions for the collections
+    function isValidUser(data) {
+      return data.uid is string 
+        && data.email is string
+        && data.name is string 
+        && data.name.size() <= 200
+        && data.phone is string
+        && data.phone.size() >= 8
+        && data.phone.size() <= 20
+        && data.whatsappVerified is bool
+        && data.termsAccepted is bool
+        && data.points is int
+        && data.tier in ['Bronce', 'Plata', 'Oro'];
+    }
+
+    // 1. Global Safety Net Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Products and Categories: anyone can read, and write is allowed for seeding and administration
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // 3. Reviews: anyone can read, and anyone can submit/seed reviews
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if false;
+    }
+
+    // 4. Users: strict owner-based restrictions, split privacy concept, and immutable controls
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && incoming().uid == userId
+        && incoming().email == request.auth.token.email
+        && isValidUser(incoming())
+        && incoming().points == 120 // Starter points default matching client setup
+        && incoming().termsAccepted == true;
+      allow update: if isOwner(userId)
+        && incoming().uid == userId
+        && incoming().email == existing().email
+        && incoming().termsAccepted == existing().termsAccepted
+        && isValidUser(incoming())
+        && (
+          // Authorized actions: earn points, update WhatsApp verification status or phone, update loyalty tier level
+          incoming().diff(existing()).affectedKeys().hasOnly(['phone', 'whatsappVerified', 'points', 'tier', 'vipCode'])
+        );
+      allow delete: if false;
+    }
+
+    // 5. Notifications: customized feed
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['isRead']);
+      allow delete: if isSignedIn();
+    }
+  }
+}

@@ -7,6 +7,7 @@ interface ProfileTabProps {
   onLogin: (email: string, name: string) => void;
   onLogout: () => void;
   onUpdatePoints: (points: number) => void;
+  openAuthModal?: () => void;
 }
 
 export default function ProfileTab({
@@ -14,6 +15,7 @@ export default function ProfileTab({
   onLogin,
   onLogout,
   onUpdatePoints,
+  openAuthModal,
 }: ProfileTabProps) {
   // Auth Form State
   const [email, setEmail] = useState<string>('');
@@ -593,103 +595,35 @@ export default function ProfileTab({
 
         </div>
       ) : (
-        // AUTHENTICATION FORM (SIGNIN/SIGNUP)
-        <div className="bg-zinc-900 border border-zinc-900/60 p-5 rounded-2xl shadow-xl">
-          <div className="flex border-b border-zinc-800 pb-3 mb-5">
-            <button
-              onClick={() => {
-                setIsRegistering(false);
-                setErrorMessage('');
-              }}
-              className={`flex-1 pb-1 text-center font-bold text-xs uppercase tracking-wider ${
-                !isRegistering ? 'text-amber-500 border-b border-amber-500' : 'text-zinc-500'
-              }`}
-            >
-              Identificarse
-            </button>
-            <button
-              onClick={() => {
-                setIsRegistering(true);
-                setErrorMessage('');
-              }}
-              className={`flex-1 pb-1 text-center font-bold text-xs uppercase tracking-wider ${
-                isRegistering ? 'text-amber-500 border-b border-amber-500' : 'text-zinc-500'
-              }`}
-            >
-              Crear Cuenta VIP
-            </button>
+        // AUTHENTICATION REQUIRED PROMPT TAB VIEW
+        <div className="bg-zinc-900 border border-zinc-800/60 p-6 rounded-3xl shadow-xl text-center space-y-5 animate-fade-in my-4">
+          <div className="w-14 h-14 bg-gradient-to-tr from-amber-500 to-orange-600 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-orange-500/20">
+            <Award className="w-7 h-7 text-black animate-pulse" />
           </div>
-
-          <form onSubmit={handleAuthSubmit} className="space-y-4">
-            {isRegistering && (
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">Nombre Completo</label>
-                <div className="relative">
-                  <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                  <input
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Ej. Alonzo Cardona"
-                    className="w-full pl-9 pr-3 py-2 bg-zinc-950 border border-zinc-900 rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 focus:ring-0"
-                  />
-                </div>
-              </div>
-            )}
-
-            <div>
-              <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">Email o Usuario</label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="ejemplo@correo.com"
-                  className="w-full pl-9 pr-3 py-2 bg-zinc-950 border border-zinc-900 rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 focus:ring-0"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">Contraseña</label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-9 pr-3 py-2 bg-zinc-950 border border-zinc-900 rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 focus:ring-0"
-                />
-              </div>
-            </div>
-
-            {errorMessage && (
-              <div className="p-3 bg-red-500/10 border border-red-500/10 rounded-xl text-[10px] text-red-500 font-semibold uppercase flex gap-1.5 items-center">
-                <ShieldAlert className="w-4 h-4 shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
-            {/* Submit button */}
-            <button
-              type="submit"
-              className="w-full py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-black font-black text-xs uppercase tracking-wider rounded-xl hover:from-amber-400 hover:to-orange-500 active:scale-98 transition-all cursor-pointer"
-            >
-              {isRegistering ? 'Crear Mi Membresía Club' : 'Iniciar Sesión'}
-            </button>
-          </form>
-
-          {/* Quick tester bypass message */}
-          <div className="mt-5 p-3 rounded-xl bg-orange-950/15 border border-orange-950/20 text-center">
-            <p className="text-[10px] text-zinc-400 font-medium">
-              💡 <strong>Ingreso Rápido Club:</strong> Introduce cualquier correo y contraseña para acceder de inmediato al menú interactivo.
+          
+          <div className="space-y-2">
+            <h3 className="text-base font-black uppercase tracking-wider text-zinc-100">Club VIP Fatboy Restaurant</h3>
+            <p className="text-xs text-zinc-400 max-w-[280px] mx-auto leading-normal font-semibold">
+              Inicia sesión o crea tu membresía digital en segundos con Google o Facebook para desbloquear tu tarjeta digital escaneable.
             </p>
           </div>
+
+          <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-2xl flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 text-emerald-500">
+              <ShieldCheck className="w-4.5 h-4.5" />
+            </div>
+            <div className="text-left">
+              <p className="text-[10px] font-black uppercase text-zinc-300 tracking-wider">Validación WhatsApp Obligatoria</p>
+              <p className="text-[9px] text-zinc-500 font-bold">Resguardo seguro de tu información y puntos VIP.</p>
+            </div>
+          </div>
+
+          <button
+            onClick={openAuthModal}
+            className="w-full py-3 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-black font-black text-xs uppercase tracking-wider rounded-xl shadow active:scale-95 transition-all duration-200 cursor-pointer flex items-center justify-center gap-2"
+          >
+            Aceptar y Registrarse en el Club VIP <Zap className="w-4 h-4" />
+          </button>
         </div>
       )}
     </div>

@@ -39,6 +39,8 @@ export interface User {
   phone?: string;
   tier?: 'Bronce' | 'Plata' | 'Oro';
   vipCode?: string;
+  whatsappVerified?: boolean;
+  termsAccepted?: boolean;
 }
 
 export interface Notification {

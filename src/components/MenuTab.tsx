@@ -9,6 +9,7 @@ interface MenuTabProps {
   onAddPoints: (points: number) => void;
   onTriggerNotification: (title: string, body: string, type: 'promo' | 'loyalty' | 'system') => void;
   openAuthModal: () => void;
+  isLoading?: boolean;
 }
 
 export default function MenuTab({
@@ -18,6 +19,7 @@ export default function MenuTab({
   onAddPoints,
   onTriggerNotification,
   openAuthModal,
+  isLoading = false,
 }: MenuTabProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -177,30 +179,45 @@ export default function MenuTab({
       )}
 
       {/* CATEGORY SELECTOR TABS CONTAINER */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-4 scrollbar-none snap-x -mx-4 px-4">
-        {categories.map((cat) => {
-          const isActive = selectedCategory === cat.id;
-          return (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap scroll-mx-4 transition-all duration-300 snap-start ${
-                isActive
-                  ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/10'
-                  : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
-              }`}
-            >
-              {getCategoryIcon(cat.icon)}
-              <span>{cat.name}</span>
-            </button>
-          );
-        })}
-      </div>
+      {isLoading ? (
+        <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-4 scrollbar-none snap-x -mx-4 px-4 animate-pulse">
+          {[1, 2, 3, 4, 5].map((idx) => (
+            <div
+              key={idx}
+              className="w-24 h-8 bg-zinc-800 border border-zinc-700/20 rounded-xl shrink-0"
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-4 scrollbar-none snap-x -mx-4 px-4">
+          {categories.map((cat) => {
+            const isActive = selectedCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap scroll-mx-4 transition-all duration-300 snap-start ${
+                  isActive
+                    ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/10'
+                    : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                }`}
+              >
+                {getCategoryIcon(cat.icon)}
+                <span>{cat.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* PRODUCTS GRID */}
       <div>
         <div className="flex items-center justify-between mb-3 px-1 text-zinc-400 text-xs">
-          <span>Mostrando {filteredProducts.length} deliciosos productos</span>
+          {isLoading ? (
+            <div className="h-4 bg-zinc-800/80 border border-zinc-700/10 rounded w-1/3 animate-pulse" />
+          ) : (
+            <span>Mostrando {filteredProducts.length} deliciosos productos</span>
+          )}
           {currentUser && (
             <span className="text-amber-500 font-semibold tracking-wide">
               {currentUser.points} Puntos Club
@@ -208,7 +225,34 @@ export default function MenuTab({
           )}
         </div>
 
-        {filteredProducts.length === 0 ? (
+        {isLoading ? (
+          <div className="grid grid-cols-2 gap-3.5" id="products-skeleton-grid">
+            {[1, 2, 3, 4].map((idx) => (
+              <div
+                key={idx}
+                className="flex flex-col bg-zinc-900/60 border border-zinc-800/50 rounded-2xl overflow-hidden p-0 animate-pulse h-[230px]"
+              >
+                {/* Image placeholder */}
+                <div className="h-28 w-full bg-zinc-800 relative" />
+                {/* Body placeholders */}
+                <div className="p-3 space-y-3 flex-1 flex flex-col justify-between">
+                  <div className="space-y-1.5">
+                    <div className="h-3.5 bg-zinc-800 rounded w-4/5" />
+                    <div className="h-2 px-1 bg-zinc-800/60 rounded w-full" />
+                    <div className="h-2 px-1 bg-zinc-800/60 rounded w-5/6" />
+                  </div>
+                  <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-zinc-950/40">
+                    <div className="space-y-1.5 w-1/2">
+                      <div className="h-3.5 bg-zinc-800 rounded w-4/5" />
+                      <div className="h-2 bg-zinc-800/50 rounded w-2/3" />
+                    </div>
+                    <div className="w-8 h-8 rounded-xl bg-zinc-800 shrink-0" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filteredProducts.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center text-zinc-500 bg-zinc-900/20 border border-zinc-900 rounded-2xl p-6">
             <ShoppingBag className="w-12 h-12 text-zinc-600 opacity-30 mb-3" />
             <p className="font-bold text-sm text-zinc-300">No encontramos resultados</p>
